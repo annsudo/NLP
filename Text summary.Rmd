@@ -1,0 +1,175 @@
+---
+title: "Text summarization"
+output: html_document
+---
+## Installing packages
+``` {r}
+install.packages("xml2")
+install.packages("rvest")
+install.packages("lexRankr")
+install.packages("tidyverse")
+install.packages("quanteda")
+install.packages("igraph")
+install.packages("here")
+install.packages("udpipe")
+install.packages("spacyr")
+install.packages("textmineR")
+install.packages("igraph")
+```
+
+## Loading packages
+``` {r, message=FALSE}
+library(xml2)
+library(rvest)
+library(tidyverse)
+library(quanteda)
+
+library(utf8)
+library(lexRankr)
+library(udpipe)
+library(spacyr)
+library(textmineR) #for deep learning
+library(igraph)
+```
+
+## START
+
+``` {r}
+data <- read.csv("lyrics-data.csv")
+head(data)
+```
+## basic statistics about data
+``` {r}
+is.data.frame(data) # is it a data frame
+ncol(data) #amount of columns
+nrow(data) # amount of rows --> 209522
+```
+## creating subset
+``` {r}
+english_data <- subset(data,Idiom =="ENGLISH")
+nrow(english_data) # amount of rows --> 114723
+
+# subset with lyrics only
+lyrics_df <- subset(english_data,select = Lyric)
+head(lyrics_df)
+```
+## DataFrame to Vector
+``` {r}
+lyrics <- unlist(lyrics_df)
+#head(lyrics)
+```
+## Creating smaller data set + DataFrame to Vector
+``` {r}
+lyrics_small <- lyrics[1:6000]
+length(lyrics_small)
+head(lyrics_small)
+```
+
+## Basic checks
+``` {r}
+# basic check encoding
+lyrics_small[!utf8_valid(lyrics_small)] 
+
+# check character normalization
+lyrics_small_NFC <- utf8_normalize(lyrics_small)
+sum(lyrics_small_NFC != lyrics_small) 
+```
+## cleaning
+``` {r}
+lyrics_small1 <- gsub(",.",".", lyrics_small)
+lyrics_small2 <- gsub("\"","", lyrics_small1)
+lyrics_small3 <- gsub("O","", lyrics_small2)
+lyrics_small_clean <- gsub("[ ]{2,}"," ", lyrics_small3)
+head(lyrics_small_clean)
+```
+## split into sentences (at least5)
+``` {r}
+# split lyrics into sentences
+  lyrics_sentences <- sapply(lyrics_small_clean, function(x){
+    x <- stringi::stri_split_boundaries(x, type = "sentence")
+  })
+
+# lyrics with more than at least 5 identified sentences
+lyrics_sentences_5 <-Filter(function(x) {length(x) >= 5}, lyrics_sentences)
+length(lyrics_sentences_5) #5646
+head(lyrics_sentences_5)
+
+```
+
+## perform lexRank
+``` {r, message=FALSE }
+# extract top 3 sentences from each chapter
+top3sentences <- lapply(lyrics_sentences_5[1:50], function(x){
+  x <- lexRankr::lexRank(x,
+                        n = 3,
+                        continuous = TRUE)%>% 
+  # format (if we want all sentences on the same view)
+   dplyr::pull(sentence) 
+  })
+
+```
+
+``` {r}
+top3sentences [15:20]
+
+```
+
+## ADVANCE PART
+``` {r}
+# our dataset : lyrics_sentences_5
+
+# create term co-occurrence matrix
+tcm <- CreateTcm(doc_vec = lyrics_sentences_5[1:20],
+                 skipgram_window = 10,
+                 verbose = FALSE,
+                 cpus = 2,
+                 stopword_vec = c(stopwords::stopwords("en"), stopwords::stopwords(source = "smart")),)
+```
+
+``` {r}
+# converting to matrix
+tcm <- as.matrix(tcm)
+
+# get the pairwise distances between each embedded sentence
+tcm_dist <- CalcHellingerDist(tcm) # values output between 0 and  1
+
+# counting similarity
+similarity <- (1 - tcm_dist)
+
+#head(similarity)
+```
+
+``` {r}
+  # construct nearest-neighbor graph. with 2 most similar sentences
+similarity <- apply(similarity, 1, function(x){
+  x[ x < sort(x, decreasing = TRUE)[ 2 ] ] <- 0
+  x
+})
+
+head(similarity)
+
+```
+
+``` {r}
+# constructing  matrix again (with pointwise max)
+similarity <- pmax(similarity, t(similarity)) 
+
+# head(similarity)
+```
+
+## calculate eigenvector centrality
+``` {r}
+eigenvector_centr <- evcent(similarity)
+#head(eigenvector_centr)
+```
+
+
+``` {r}
+result<- names(eigenvector_centr$vector)[order(eigenvector_centr$vector, decreasing = TRUE)[ 1:9 ] ] # how many words will be printed.
+
+head(result)
+```
+
+``` {r}
+
+```
